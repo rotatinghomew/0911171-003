@@ -1,6 +1,6 @@
 from copy import deepcopy
 
-from .review import review
+from .review import review, review_model
 
 
 class AdvisingDesk:
@@ -10,15 +10,26 @@ class AdvisingDesk:
         self.seats = dict(seats)
         self.reservations: dict[str, list[dict]] = {}
 
-    def propose(self, enrollments: list[dict], activity: list[dict], as_of: int, parameters: dict[str, float]) -> list[dict]:
-        predictions = review(enrollments, activity, as_of, parameters)
+    def propose(self, enrollments: list[dict], activity: list[dict], as_of: int,
+                parameters: dict[str, float] | None = None, *, model=None) -> list[dict]:
+        """按预测完成概率从低到高提出名单。model 与 parameters 二选一。"""
+        if model is None:
+            if parameters is None:
+                raise ValueError("需要提供已训练模型或评分参数")
+            predictions = review(enrollments, activity, as_of, parameters)
+        else:
+            predictions = review_model(enrollments, activity, as_of, model)
         groups = {row["learner_id"]: row["cohort"] for row in enrollments}
         remaining = dict(self.seats)
         proposals = []
         for prediction in sorted(predictions, key=lambda row: (row["score"], row["learner_id"])):
             cohort = groups[prediction["learner_id"]]
             if remaining.get(cohort, 0) > 0:
-                proposals.append({**prediction, "cohort": cohort})
+                proposal = {**prediction, "cohort": cohort}
+                if model is not None:
+                    proposal["model_name"] = model.name
+                    proposal["model_version"] = model.version
+                proposals.append(proposal)
                 remaining[cohort] -= 1
         return proposals
 
